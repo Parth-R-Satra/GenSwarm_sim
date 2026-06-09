@@ -5,9 +5,39 @@ from matplotlib.animation import FuncAnimation
 N_ROBOTS = 8
 DT = 0.05
 MAX_SPEED = 0.55
+SENSE_RADIUS = 2.2
 ENCIRCLE_RADIUS = 1.4
 ARENA_LIMIT = 4.0
 STEPS = 1200
+
+ROBOT_RADIUS = 0.12
+ROBOT_COLLISION_DISTANCE = 2 * ROBOT_RADIUS
+FLOCK_SEPARATION_DISTANCE = 0.55
+
+metrics = {
+    "total_encircle_error": 0.0,
+    "frames": 0,
+    "robot_collisions": 0
+}
+
+
+def encircle_error(positions, target):
+    distances = np.linalg.norm(positions - target, axis=1)
+    errors = np.abs(distances - ENCIRCLE_RADIUS)
+    return np.mean(errors)
+
+
+def count_robot_collisions(positions):
+    count = 0
+
+    for i in range(len(positions)):
+        for j in range(i + 1, len(positions)):
+            d = np.linalg.norm(positions[i] - positions[j])
+
+            if d < ROBOT_COLLISION_DISTANCE:
+                count += 1
+
+    return count
 
 
 def clamp_vector(v, max_norm):
@@ -26,17 +56,97 @@ def target_position(t):
     ], dtype=float)
 
 
-def encircle_policy(robot_id, positions, target):
+def sense_neighbors(robot_id, positions):
     me = positions[robot_id]
+    neighbors = []
 
-    angle = 2.0 * np.pi * robot_id / len(positions)
+    for j, other in enumerate(positions):
+        if j == robot_id:
+            continue
 
-    goal = target + ENCIRCLE_RADIUS * np.array([
+        d = np.linalg.norm(other - me)
+
+        if d <= SENSE_RADIUS:
+            neighbors.append((j, other.copy(), d))
+
+    return neighbors
+
+
+def move_to_goal(me, goal, strength=1.0):
+    return strength * (goal - me)
+
+
+def avoid_neighbors(robot_id, positions, strength=1.8):
+    me = positions[robot_id]
+    avoid = np.zeros(2)
+
+    for j, other in enumerate(positions):
+        if j == robot_id:
+            continue
+
+        direction = me - other
+        distance = np.linalg.norm(direction)
+
+        if distance < 1e-6:
+            continue
+
+        if distance < FLOCK_SEPARATION_DISTANCE:
+            away = direction / distance
+            avoid += strength * (FLOCK_SEPARATION_DISTANCE - distance) * away
+
+    return avoid
+
+
+def avoid_boundary(me):
+    boundary = np.zeros(2)
+    margin = 0.7
+    strength = 2.0
+
+    right_limit = ARENA_LIMIT - margin
+    left_limit = -ARENA_LIMIT + margin
+    top_limit = ARENA_LIMIT - margin
+    bottom_limit = -ARENA_LIMIT + margin
+
+    if me[0] > right_limit:
+        boundary[0] -= strength * (me[0] - right_limit)
+
+    if me[0] < left_limit:
+        boundary[0] += strength * (left_limit - me[0])
+
+    if me[1] > top_limit:
+        boundary[1] -= strength * (me[1] - top_limit)
+
+    if me[1] < bottom_limit:
+        boundary[1] += strength * (bottom_limit - me[1])
+
+    return boundary
+
+
+def assigned_encircle_point(robot_id, total_robots, target):
+    angle = 2.0 * np.pi * robot_id / total_robots
+
+    point = target + ENCIRCLE_RADIUS * np.array([
         np.cos(angle),
         np.sin(angle)
     ])
 
-    velocity = 1.8 * (goal - me)
+    return point
+
+
+def encircle_policy(robot_id, positions, target):
+    me = positions[robot_id]
+
+    goal = assigned_encircle_point(
+        robot_id,
+        len(positions),
+        target
+    )
+
+    velocity = (
+        move_to_goal(me, goal, strength=1.8)
+        + avoid_neighbors(robot_id, positions, strength=0.8)
+        + avoid_boundary(me)
+    )
 
     return clamp_vector(velocity, MAX_SPEED)
 
@@ -89,6 +199,13 @@ def update(frame):
 
     positions = positions + velocities * DT
 
+    error = encircle_error(positions, target)
+    robot_collisions_now = count_robot_collisions(positions)
+
+    metrics["total_encircle_error"] += error
+    metrics["frames"] += 1
+    metrics["robot_collisions"] += robot_collisions_now
+
     robots_plot.set_offsets(positions)
     target_plot.set_offsets([target])
 
@@ -100,7 +217,12 @@ def update(frame):
 
     circle_line.set_data(circle[:, 0], circle[:, 1])
 
-    ax.set_title(f"Basic Encircling Simulation | Step {frame}")
+    ax.set_title(
+        f"Task: encircle | Step {frame} | "
+        f"Encircle error: {error:.3f} | "
+        f"Robot now: {robot_collisions_now} | "
+        f"Robot total: {metrics['robot_collisions']}"
+    )
 
     return robots_plot, target_plot, circle_line
 
@@ -114,3 +236,10 @@ ani = FuncAnimation(
 )
 
 plt.show()
+
+average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
+
+print("Simulation finished")
+print("Task: encircle")
+print("Average encircle error:", average_error)
+print("Total robot collision count:", metrics["robot_collisions"])
