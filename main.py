@@ -10,12 +10,16 @@ ENCIRCLE_RADIUS = 1.4
 ARENA_LIMIT = 4.0
 STEPS = 1200
 
+TASK = "flock"
+# TASK = "encircle"
+
 ROBOT_RADIUS = 0.12
 ROBOT_COLLISION_DISTANCE = 2 * ROBOT_RADIUS
 FLOCK_SEPARATION_DISTANCE = 0.55
 
 metrics = {
     "total_encircle_error": 0.0,
+    "total_spatial_variance": 0.0,
     "frames": 0,
     "robot_collisions": 0
 }
@@ -25,6 +29,12 @@ def encircle_error(positions, target):
     distances = np.linalg.norm(positions - target, axis=1)
     errors = np.abs(distances - ENCIRCLE_RADIUS)
     return np.mean(errors)
+
+
+def spatial_variance(positions):
+    group_center = np.mean(positions, axis=0)
+    squared_distances = np.sum((positions - group_center) ** 2, axis=1)
+    return np.mean(squared_distances)
 
 
 def count_robot_collisions(positions):
@@ -151,12 +161,77 @@ def encircle_policy(robot_id, positions, target):
     return clamp_vector(velocity, MAX_SPEED)
 
 
-angles = np.linspace(0, 2 * np.pi, N_ROBOTS, endpoint=False)
+def flock_policy(robot_id, positions, old_velocities):
+    me = positions[robot_id]
+    neighbors = sense_neighbors(robot_id, positions)
 
-positions = np.stack([
-    2.7 * np.cos(angles),
-    2.7 * np.sin(angles)
-], axis=1)
+    if len(neighbors) > 0:
+        neighbor_ids = [item[0] for item in neighbors]
+
+        neighbor_positions = positions[neighbor_ids]
+        neighbor_velocities = old_velocities[neighbor_ids]
+
+        local_center = np.mean(neighbor_positions, axis=0)
+
+        cohesion = move_to_goal(
+            me,
+            local_center,
+            strength=0.55
+        )
+
+        average_neighbor_velocity = np.mean(neighbor_velocities, axis=0)
+
+        alignment = (
+            average_neighbor_velocity - old_velocities[robot_id]
+        ) * 0.55
+
+    else:
+        cohesion = np.zeros(2)
+        alignment = np.zeros(2)
+
+    separation = avoid_neighbors(
+        robot_id,
+        positions,
+        strength=2.4
+    )
+
+    damping = -0.35 * old_velocities[robot_id]
+    boundary = avoid_boundary(me)
+
+    velocity = (
+        cohesion
+        + alignment
+        + separation
+        + damping
+        + boundary
+    )
+
+    return clamp_vector(velocity, MAX_SPEED)
+
+
+def initial_positions_for_task(task):
+    if task == "flock":
+        return np.array([
+            [-3.1,  2.7],
+            [-2.4,  1.8],
+            [-1.6,  3.0],
+            [-0.8,  1.5],
+            [ 0.2,  2.6],
+            [ 1.2,  1.7],
+            [ 2.2,  2.9],
+            [ 3.0,  1.6]
+        ], dtype=float)
+
+    angles = np.linspace(0, 2 * np.pi, N_ROBOTS, endpoint=False)
+
+    return np.stack([
+        2.7 * np.cos(angles),
+        2.7 * np.sin(angles)
+    ], axis=1)
+
+
+positions = initial_positions_for_task(TASK)
+previous_velocities = np.zeros_like(positions)
 
 fig, ax = plt.subplots(figsize=(7, 7))
 
@@ -177,7 +252,7 @@ target_plot = ax.scatter(
     [0],
     s=160,
     marker="x",
-    label="Target"
+    label="Target" if TASK == "encircle" else "_nolegend_"
 )
 
 circle_line, = ax.plot([], [], linestyle="--", linewidth=1)
@@ -186,40 +261,72 @@ ax.legend(loc="upper right")
 
 
 def update(frame):
-    global positions
+    global positions, previous_velocities
 
     t = frame * DT
-    target = target_position(t)
 
     old_positions = positions.copy()
+    old_velocities = previous_velocities.copy()
     velocities = np.zeros_like(positions)
 
-    for i in range(N_ROBOTS):
-        velocities[i] = encircle_policy(i, old_positions, target)
+    if TASK == "encircle":
+        target = target_position(t)
+
+        for i in range(N_ROBOTS):
+            velocities[i] = encircle_policy(i, old_positions, target)
+
+    elif TASK == "flock":
+        target = None
+
+        for i in range(N_ROBOTS):
+            velocities[i] = flock_policy(i, old_positions, old_velocities)
+
+    else:
+        target = None
 
     positions = positions + velocities * DT
+    previous_velocities = velocities.copy()
 
-    error = encircle_error(positions, target)
     robot_collisions_now = count_robot_collisions(positions)
 
-    metrics["total_encircle_error"] += error
     metrics["frames"] += 1
     metrics["robot_collisions"] += robot_collisions_now
 
     robots_plot.set_offsets(positions)
-    target_plot.set_offsets([target])
 
-    theta = np.linspace(0, 2 * np.pi, 100)
-    circle = target + ENCIRCLE_RADIUS * np.stack([
-        np.cos(theta),
-        np.sin(theta)
-    ], axis=1)
+    if TASK == "encircle":
+        target_plot.set_visible(True)
+        target_plot.set_offsets([target])
 
-    circle_line.set_data(circle[:, 0], circle[:, 1])
+        theta = np.linspace(0, 2 * np.pi, 100)
+        circle = target + ENCIRCLE_RADIUS * np.stack([
+            np.cos(theta),
+            np.sin(theta)
+        ], axis=1)
+
+        circle_line.set_data(circle[:, 0], circle[:, 1])
+
+        error = encircle_error(positions, target)
+        metrics["total_encircle_error"] += error
+
+        title_metric = f"Encircle error: {error:.3f}"
+
+    elif TASK == "flock":
+        target_plot.set_visible(False)
+        circle_line.set_data([], [])
+
+        variance = spatial_variance(positions)
+        metrics["total_spatial_variance"] += variance
+
+        title_metric = f"Spatial variance: {variance:.3f}"
+
+    else:
+        target_plot.set_visible(False)
+        circle_line.set_data([], [])
+        title_metric = "Unknown task"
 
     ax.set_title(
-        f"Task: encircle | Step {frame} | "
-        f"Encircle error: {error:.3f} | "
+        f"Task: {TASK} | Step {frame} | {title_metric} | "
         f"Robot now: {robot_collisions_now} | "
         f"Robot total: {metrics['robot_collisions']}"
     )
@@ -237,9 +344,15 @@ ani = FuncAnimation(
 
 plt.show()
 
-average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
-
 print("Simulation finished")
-print("Task: encircle")
-print("Average encircle error:", average_error)
+print("Task:", TASK)
+
+if TASK == "encircle":
+    average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
+    print("Average encircle error:", average_error)
+
+if TASK == "flock":
+    average_variance = metrics["total_spatial_variance"] / max(metrics["frames"], 1)
+    print("Average spatial variance:", average_variance)
+
 print("Total robot collision count:", metrics["robot_collisions"])
