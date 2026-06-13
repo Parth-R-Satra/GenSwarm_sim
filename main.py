@@ -10,12 +10,28 @@ ENCIRCLE_RADIUS = 1.4
 ARENA_LIMIT = 4.0
 STEPS = 1200
 
-TASK = "flock"
-# TASK = "encircle"
-
 ROBOT_RADIUS = 0.12
 ROBOT_COLLISION_DISTANCE = 2 * ROBOT_RADIUS
 FLOCK_SEPARATION_DISTANCE = 0.55
+
+
+def choose_task_from_instruction(instruction):
+    text = instruction.lower()
+
+    if "flock" in text or "group" in text or "cluster" in text:
+        return "flock"
+
+    if "encircle" in text or "surround" in text or "circle" in text:
+        return "encircle"
+
+    return "flock"
+
+
+USER_INSTRUCTION = input("Enter swarm instruction: ")
+TASK = choose_task_from_instruction(USER_INSTRUCTION)
+
+print("Chosen task:", TASK)
+
 
 metrics = {
     "total_encircle_error": 0.0,
@@ -345,6 +361,7 @@ ani = FuncAnimation(
 plt.show()
 
 print("Simulation finished")
+print("Instruction:", USER_INSTRUCTION)
 print("Task:", TASK)
 
 if TASK == "encircle":
