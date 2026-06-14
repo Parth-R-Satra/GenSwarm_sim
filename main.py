@@ -1,3 +1,4 @@
+import ast
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -13,6 +14,8 @@ STEPS = 1200
 ROBOT_RADIUS = 0.12
 ROBOT_COLLISION_DISTANCE = 2 * ROBOT_RADIUS
 FLOCK_SEPARATION_DISTANCE = 0.55
+
+USE_GENERATED_POLICY = True
 
 
 def choose_task_from_instruction(instruction):
@@ -225,6 +228,212 @@ def flock_policy(robot_id, positions, old_velocities):
     return clamp_vector(velocity, MAX_SPEED)
 
 
+def generate_policy_code(instruction, task):
+    if task == "flock":
+        return """
+def generated_policy(robot_id, positions, old_velocities, target):
+    me = positions[robot_id]
+    neighbors = sense_neighbors(robot_id, positions)
+
+    if len(neighbors) > 0:
+        neighbor_ids = [item[0] for item in neighbors]
+
+        neighbor_positions = positions[neighbor_ids]
+        neighbor_velocities = old_velocities[neighbor_ids]
+
+        local_center = np.mean(neighbor_positions, axis=0)
+
+        cohesion = move_to_goal(
+            me,
+            local_center,
+            strength=0.55
+        )
+
+        average_neighbor_velocity = np.mean(neighbor_velocities, axis=0)
+
+        alignment = (
+            average_neighbor_velocity - old_velocities[robot_id]
+        ) * 0.55
+
+    else:
+        cohesion = np.zeros(2)
+        alignment = np.zeros(2)
+
+    separation = avoid_neighbors(
+        robot_id,
+        positions,
+        strength=2.4
+    )
+
+    damping = -0.35 * old_velocities[robot_id]
+    boundary = avoid_boundary(me)
+
+    velocity = (
+        cohesion
+        + alignment
+        + separation
+        + damping
+        + boundary
+    )
+
+    return clamp_vector(velocity, MAX_SPEED)
+"""
+
+    if task == "encircle":
+        return """
+def generated_policy(robot_id, positions, old_velocities, target):
+    me = positions[robot_id]
+
+    goal = assigned_encircle_point(
+        robot_id,
+        len(positions),
+        target
+    )
+
+    velocity = (
+        move_to_goal(me, goal, strength=1.8)
+        + avoid_neighbors(robot_id, positions, strength=0.8)
+        + avoid_boundary(me)
+    )
+
+    return clamp_vector(velocity, MAX_SPEED)
+"""
+
+    return """
+def generated_policy(robot_id, positions, old_velocities, target):
+    return np.zeros(2)
+"""
+
+
+def validate_policy_code(policy_code):
+    banned_words = [
+        "import",
+        "open",
+        "eval",
+        "exec",
+        "__",
+        "os.",
+        "sys.",
+        "subprocess",
+        "input",
+        "while True"
+    ]
+
+    for word in banned_words:
+        if word in policy_code:
+            raise ValueError(f"Unsafe generated code found: {word}")
+
+    tree = ast.parse(policy_code)
+
+    function_names = [
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    ]
+
+    if "generated_policy" not in function_names:
+        raise ValueError("Generated code must define generated_policy().")
+
+    allowed_function_calls = {
+        "generated_policy",
+        "sense_neighbors",
+        "move_to_goal",
+        "avoid_neighbors",
+        "avoid_boundary",
+        "assigned_encircle_point",
+        "clamp_vector",
+        "len",
+        "range"
+    }
+
+    allowed_np_calls = {
+        "mean",
+        "zeros",
+        "array"
+    }
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                if node.func.id not in allowed_function_calls:
+                    raise ValueError(f"Function call not allowed: {node.func.id}")
+
+            elif isinstance(node.func, ast.Attribute):
+                if isinstance(node.func.value, ast.Name):
+                    if node.func.value.id == "np":
+                        if node.func.attr not in allowed_np_calls:
+                            raise ValueError(
+                                f"NumPy call not allowed: np.{node.func.attr}"
+                            )
+
+    return True
+
+
+def compile_generated_policy(policy_code):
+    validate_policy_code(policy_code)
+
+    namespace = {
+        "__builtins__": {
+            "len": len,
+            "range": range
+        },
+        "np": np,
+        "MAX_SPEED": MAX_SPEED,
+        "sense_neighbors": sense_neighbors,
+        "move_to_goal": move_to_goal,
+        "avoid_neighbors": avoid_neighbors,
+        "avoid_boundary": avoid_boundary,
+        "assigned_encircle_point": assigned_encircle_point,
+        "clamp_vector": clamp_vector
+    }
+
+    exec(policy_code, namespace)
+
+    generated = namespace["generated_policy"]
+
+    dummy_positions = np.array([
+        [0.0, 0.0],
+        [0.5, 0.1],
+        [1.0, 0.0],
+        [1.5, 0.1],
+        [2.0, 0.0],
+        [2.5, 0.1],
+        [3.0, 0.0],
+        [3.5, 0.1]
+    ], dtype=float)
+
+    dummy_velocities = np.zeros_like(dummy_positions)
+    dummy_target = np.array([0.0, 0.0], dtype=float)
+
+    test_output = generated(
+        0,
+        dummy_positions,
+        dummy_velocities,
+        dummy_target
+    )
+
+    if not isinstance(test_output, np.ndarray):
+        raise ValueError("generated_policy() must return a NumPy array.")
+
+    if test_output.shape != (2,):
+        raise ValueError("generated_policy() must return a 2D vector with shape (2,).")
+
+    if np.any(np.isnan(test_output)):
+        raise ValueError("generated_policy() returned NaN values.")
+
+    print("Generated policy passed validation.")
+
+    return generated
+
+
+policy_code = generate_policy_code(USER_INSTRUCTION, TASK)
+
+print("\nGenerated policy code:")
+print(policy_code)
+
+generated_policy = compile_generated_policy(policy_code)
+
+
 def initial_positions_for_task(task):
     if task == "flock":
         return np.array([
@@ -289,13 +498,29 @@ def update(frame):
         target = target_position(t)
 
         for i in range(N_ROBOTS):
-            velocities[i] = encircle_policy(i, old_positions, target)
+            if USE_GENERATED_POLICY:
+                velocities[i] = generated_policy(
+                    i,
+                    old_positions,
+                    old_velocities,
+                    target
+                )
+            else:
+                velocities[i] = encircle_policy(i, old_positions, target)
 
     elif TASK == "flock":
         target = None
 
         for i in range(N_ROBOTS):
-            velocities[i] = flock_policy(i, old_positions, old_velocities)
+            if USE_GENERATED_POLICY:
+                velocities[i] = generated_policy(
+                    i,
+                    old_positions,
+                    old_velocities,
+                    target
+                )
+            else:
+                velocities[i] = flock_policy(i, old_positions, old_velocities)
 
     else:
         target = None
@@ -341,9 +566,11 @@ def update(frame):
         circle_line.set_data([], [])
         title_metric = "Unknown task"
 
+    policy_type = "generated" if USE_GENERATED_POLICY else "manual"
+
     ax.set_title(
-        f"Task: {TASK} | Step {frame} | {title_metric} | "
-        f"Robot now: {robot_collisions_now} | "
+        f"Task: {TASK} | Policy: {policy_type} | Step {frame} | "
+        f"{title_metric} | Robot now: {robot_collisions_now} | "
         f"Robot total: {metrics['robot_collisions']}"
     )
 
@@ -363,6 +590,7 @@ plt.show()
 print("Simulation finished")
 print("Instruction:", USER_INSTRUCTION)
 print("Task:", TASK)
+print("Policy mode:", "generated" if USE_GENERATED_POLICY else "manual")
 
 if TASK == "encircle":
     average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
