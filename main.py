@@ -17,6 +17,10 @@ FLOCK_SEPARATION_DISTANCE = 0.55
 
 USE_GENERATED_POLICY = True
 
+# New improvement: save final simulation results to a file.
+SAVE_RUN_SUMMARY = True
+RUN_SUMMARY_FILE = "run_summary.txt"
+
 
 def choose_task_from_instruction(instruction):
     text = instruction.lower()
@@ -577,6 +581,31 @@ def update(frame):
     return robots_plot, target_plot, circle_line
 
 
+def save_run_summary():
+    lines = []
+
+    lines.append("GenSwarm-style Simulation Run Summary")
+    lines.append("------------------------------------")
+    lines.append(f"Instruction: {USER_INSTRUCTION}")
+    lines.append(f"Chosen task: {TASK}")
+    lines.append(f"Policy mode: {'generated' if USE_GENERATED_POLICY else 'manual'}")
+    lines.append(f"Frames executed: {metrics['frames']}")
+    lines.append(f"Total robot collisions: {metrics['robot_collisions']}")
+
+    if TASK == "encircle":
+        average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
+        lines.append(f"Average encircle error: {average_error}")
+
+    if TASK == "flock":
+        average_variance = metrics["total_spatial_variance"] / max(metrics["frames"], 1)
+        lines.append(f"Average spatial variance: {average_variance}")
+
+    with open(RUN_SUMMARY_FILE, "w") as file:
+        file.write("\n".join(lines))
+
+    print(f"Run summary saved to {RUN_SUMMARY_FILE}")
+
+
 ani = FuncAnimation(
     fig,
     update,
@@ -601,3 +630,6 @@ if TASK == "flock":
     print("Average spatial variance:", average_variance)
 
 print("Total robot collision count:", metrics["robot_collisions"])
+
+if SAVE_RUN_SUMMARY:
+    save_run_summary()
