@@ -1,0 +1,8 @@
+GenSwarm-style Simulation Run Summary
+------------------------------------
+Instruction: follow around the target
+Chosen task: flock
+Policy mode: generated
+Frames executed: 90
+Total robot collisions: 0
+Average spatial variance: 2.8256962577636338
