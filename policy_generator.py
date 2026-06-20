@@ -1,16 +1,87 @@
-def choose_task_from_instruction(instruction):
+def analyze_instruction(instruction):
     text = instruction.lower()
 
-    if "flock" in text or "group" in text or "cluster" in text:
-        return "flock"
+    task_spec = {
+        "task": "flock",
+        "target_required": False,
+        "description": instruction,
+        "skills": [],
+        "constraints": [
+            "avoid_robot_collision",
+            "stay_inside_arena"
+        ]
+    }
 
-    if "encircle" in text or "surround" in text or "circle" in text:
-        return "encircle"
+    encircle_words = [
+        "encircle",
+        "surround",
+        "circle",
+        "around",
+        "ring",
+        "orbit"
+    ]
 
-    return "flock"
+    flock_words = [
+        "flock",
+        "group",
+        "cluster",
+        "together",
+        "cohesive"
+    ]
+
+    target_words = [
+        "target",
+        "prey",
+        "moving target"
+    ]
+
+    has_encircle_intent = any(word in text for word in encircle_words)
+    has_flock_intent = any(word in text for word in flock_words)
+    has_target = any(word in text for word in target_words)
+
+    if has_encircle_intent or (("follow" in text or "chase" in text) and has_target):
+        task_spec["task"] = "encircle"
+        task_spec["target_required"] = True
+        task_spec["skills"] = [
+            "assigned_encircle_point",
+            "move_to_goal",
+            "avoid_neighbors",
+            "avoid_boundary"
+        ]
+        task_spec["constraints"].append("maintain_radius_around_target")
+        return task_spec
+
+    if has_flock_intent:
+        task_spec["task"] = "flock"
+        task_spec["target_required"] = False
+        task_spec["skills"] = [
+            "sense_neighbors",
+            "move_to_goal",
+            "avoid_neighbors",
+            "avoid_boundary",
+            "velocity_alignment",
+            "damping"
+        ]
+        task_spec["constraints"].append("maintain_local_cohesion")
+        return task_spec
+
+    task_spec["task"] = "flock"
+    task_spec["skills"] = [
+        "sense_neighbors",
+        "move_to_goal",
+        "avoid_neighbors",
+        "avoid_boundary",
+        "velocity_alignment",
+        "damping"
+    ]
+    task_spec["constraints"].append("maintain_local_cohesion")
+
+    return task_spec
 
 
-def generate_policy_code(instruction, task):
+def generate_policy_code(instruction, task_spec):
+    task = task_spec["task"]
+
     if task == "flock":
         return """
 def generated_policy(robot_id, positions, old_velocities, target):

@@ -26,7 +26,7 @@ from policies import (
 )
 
 from policy_generator import (
-    choose_task_from_instruction,
+    analyze_instruction,
     generate_policy_code
 )
 
@@ -35,11 +35,15 @@ from validator import compile_generated_policy
 
 
 USER_INSTRUCTION = input("Enter swarm instruction: ")
-TASK = choose_task_from_instruction(USER_INSTRUCTION)
 
+TASK_SPEC = analyze_instruction(USER_INSTRUCTION)
+TASK = TASK_SPEC["task"]
+
+print("Task analysis:")
+print(TASK_SPEC)
 print("Chosen task:", TASK)
 
-policy_code = generate_policy_code(USER_INSTRUCTION, TASK)
+policy_code = generate_policy_code(USER_INSTRUCTION, TASK_SPEC)
 
 print("\nGenerated policy code:")
 print(policy_code)
@@ -182,6 +186,9 @@ def save_run_summary():
     lines.append("------------------------------------")
     lines.append(f"Instruction: {USER_INSTRUCTION}")
     lines.append(f"Chosen task: {TASK}")
+    lines.append(f"Target required: {TASK_SPEC['target_required']}")
+    lines.append(f"Skills: {', '.join(TASK_SPEC['skills'])}")
+    lines.append(f"Constraints: {', '.join(TASK_SPEC['constraints'])}")
     lines.append(f"Policy mode: {'generated' if USE_GENERATED_POLICY else 'manual'}")
     lines.append(f"Frames executed: {metrics['frames']}")
     lines.append(f"Total robot collisions: {metrics['robot_collisions']}")
