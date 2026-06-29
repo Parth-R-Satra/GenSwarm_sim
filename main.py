@@ -6,11 +6,15 @@ from config import (
     ARENA_LIMIT,
     DT,
     ENCIRCLE_RADIUS,
+    GENERATED_POLICY_FILE,
+    LLM_MAX_RETRIES,
     N_ROBOTS,
     RUN_SUMMARY_FILE,
+    SAVE_GENERATED_POLICY,
     SAVE_RUN_SUMMARY,
     STEPS,
-    USE_GENERATED_POLICY
+    USE_GENERATED_POLICY,
+    USE_LLM_GENERATOR
 )
 
 from metrics import (
@@ -27,8 +31,10 @@ from policies import (
 
 from policy_generator import (
     analyze_instruction,
-    generate_policy_code
+    generate_policy_code as generate_template_policy_code
 )
+
+from llm_policy_generator import generate_policy_code_with_llm
 
 from skills import target_position
 from validator import compile_generated_policy
@@ -43,12 +49,58 @@ print("Task analysis:")
 print(TASK_SPEC)
 print("Chosen task:", TASK)
 
-policy_code = generate_policy_code(USER_INSTRUCTION, TASK_SPEC)
+def save_generated_policy(policy_code):
+    with open(GENERATED_POLICY_FILE, "w") as file:
+        file.write(policy_code)
 
-print("\nGenerated policy code:")
-print(policy_code)
+    print(f"Generated policy saved to {GENERATED_POLICY_FILE}")
 
-generated_policy = compile_generated_policy(policy_code)
+
+def build_and_validate_policy():
+    validation_error = None
+
+    if USE_LLM_GENERATOR:
+        for attempt in range(LLM_MAX_RETRIES):
+            print(f"\nGenerating policy using Gemini, attempt {attempt + 1}...")
+
+            policy_code = generate_policy_code_with_llm(
+                USER_INSTRUCTION,
+                TASK_SPEC,
+                validation_error=validation_error
+            )
+
+            print("\nLLM generated policy code:")
+            print(policy_code)
+
+            try:
+                generated = compile_generated_policy(policy_code)
+
+                if SAVE_GENERATED_POLICY:
+                    save_generated_policy(policy_code)
+
+                return policy_code, generated
+
+            except Exception as error:
+                validation_error = str(error)
+                print("Generated policy failed validation:")
+                print(validation_error)
+
+        print("\nGemini generation failed. Falling back to template policy.")
+
+    policy_code = generate_template_policy_code(USER_INSTRUCTION, TASK_SPEC)
+
+    print("\nTemplate policy code:")
+    print(policy_code)
+
+    generated = compile_generated_policy(policy_code)
+
+    if SAVE_GENERATED_POLICY:
+        save_generated_policy(policy_code)
+
+    return policy_code, generated
+
+
+policy_code, generated_policy = build_and_validate_policy()
 
 metrics = {
     "total_encircle_error": 0.0,
@@ -220,6 +272,9 @@ plt.show()
 print("Simulation finished")
 print("Instruction:", USER_INSTRUCTION)
 print("Task:", TASK)
+print("Target required:", TASK_SPEC["target_required"])
+print("Skills:", TASK_SPEC["skills"])
+print("Constraints:", TASK_SPEC["constraints"])
 print("Policy mode:", "generated" if USE_GENERATED_POLICY else "manual")
 
 if TASK == "encircle":

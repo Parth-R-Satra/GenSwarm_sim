@@ -1,11 +1,11 @@
 GenSwarm-style Simulation Run Summary
 ------------------------------------
-Instruction: follow around the target
-Chosen task: encircle
-Target required: True
-Skills: assigned_encircle_point, move_to_goal, avoid_neighbors, avoid_boundary
-Constraints: avoid_robot_collision, stay_inside_arena, maintain_radius_around_target
+Instruction: make all robots come close toghether
+Chosen task: flock
+Target required: False
+Skills: sense_neighbors, move_to_goal, avoid_neighbors, avoid_boundary, velocity_alignment, damping
+Constraints: avoid_robot_collision, stay_inside_arena, maintain_local_cohesion
 Policy mode: generated
-Frames executed: 58
+Frames executed: 152
 Total robot collisions: 0
-Average encircle error: 0.6481971680033382
+Average spatial variance: 1.0164216502559293
