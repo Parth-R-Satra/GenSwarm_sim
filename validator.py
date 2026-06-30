@@ -7,8 +7,10 @@ from skills import (
     avoid_boundary,
     avoid_neighbors,
     clamp_vector,
+    keep_distance_from_target,
     move_to_goal,
-    sense_neighbors
+    sense_neighbors,
+    spread_from_neighbors
 )
 
 
@@ -46,6 +48,8 @@ def validate_policy_code(policy_code):
         "sense_neighbors",
         "move_to_goal",
         "avoid_neighbors",
+        "spread_from_neighbors",
+        "keep_distance_from_target",
         "avoid_boundary",
         "assigned_encircle_point",
         "clamp_vector",
@@ -89,6 +93,8 @@ def compile_generated_policy(policy_code):
         "sense_neighbors": sense_neighbors,
         "move_to_goal": move_to_goal,
         "avoid_neighbors": avoid_neighbors,
+        "spread_from_neighbors": spread_from_neighbors,
+        "keep_distance_from_target": keep_distance_from_target,
         "avoid_boundary": avoid_boundary,
         "assigned_encircle_point": assigned_encircle_point,
         "clamp_vector": clamp_vector
@@ -130,4 +136,4 @@ def compile_generated_policy(policy_code):
 
     print("Generated policy passed validation.")
 
-    return generated
+    return generated    

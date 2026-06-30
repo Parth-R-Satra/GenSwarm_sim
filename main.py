@@ -13,6 +13,7 @@ from config import (
     SAVE_GENERATED_POLICY,
     SAVE_RUN_SUMMARY,
     STEPS,
+    TARGET_STANDOFF_DISTANCE,
     USE_GENERATED_POLICY,
     USE_LLM_GENERATOR
 )
@@ -24,9 +25,11 @@ from metrics import (
 )
 
 from policies import (
+    dispersion_policy,
     encircle_policy,
     flock_policy,
-    initial_positions_for_task
+    initial_positions_for_task,
+    pursuit_policy
 )
 
 from policy_generator import (
@@ -48,6 +51,7 @@ TASK = TASK_SPEC["task"]
 print("Task analysis:")
 print(TASK_SPEC)
 print("Chosen task:", TASK)
+
 
 def save_generated_policy(policy_code):
     with open(GENERATED_POLICY_FILE, "w") as file:
@@ -105,6 +109,7 @@ policy_code, generated_policy = build_and_validate_policy()
 metrics = {
     "total_encircle_error": 0.0,
     "total_spatial_variance": 0.0,
+    "total_pursuit_standoff_error": 0.0,
     "frames": 0,
     "robot_collisions": 0
 }
@@ -131,7 +136,7 @@ target_plot = ax.scatter(
     [0],
     s=160,
     marker="x",
-    label="Target" if TASK == "encircle" else "_nolegend_"
+    label="Target" if TASK in ["encircle", "pursuit"] else "_nolegend_"
 )
 
 circle_line, = ax.plot([], [], linestyle="--", linewidth=1)
@@ -162,6 +167,25 @@ def update(frame):
             else:
                 velocities[i] = encircle_policy(i, old_positions, target)
 
+    elif TASK == "pursuit":
+        target = target_position(t)
+
+        for i in range(N_ROBOTS):
+            if USE_GENERATED_POLICY:
+                velocities[i] = generated_policy(
+                    i,
+                    old_positions,
+                    old_velocities,
+                    target
+                )
+            else:
+                velocities[i] = pursuit_policy(
+                    i,
+                    old_positions,
+                    old_velocities,
+                    target
+                )
+
     elif TASK == "flock":
         target = None
 
@@ -174,7 +198,29 @@ def update(frame):
                     target
                 )
             else:
-                velocities[i] = flock_policy(i, old_positions, old_velocities)
+                velocities[i] = flock_policy(
+                    i,
+                    old_positions,
+                    old_velocities
+                )
+
+    elif TASK == "dispersion":
+        target = None
+
+        for i in range(N_ROBOTS):
+            if USE_GENERATED_POLICY:
+                velocities[i] = generated_policy(
+                    i,
+                    old_positions,
+                    old_velocities,
+                    target
+                )
+            else:
+                velocities[i] = dispersion_policy(
+                    i,
+                    old_positions,
+                    old_velocities
+                )
 
     else:
         target = None
@@ -206,6 +252,25 @@ def update(frame):
 
         title_metric = f"Encircle error: {error:.3f}"
 
+    elif TASK == "pursuit":
+        target_plot.set_visible(True)
+        target_plot.set_offsets([target])
+
+        theta = np.linspace(0, 2 * np.pi, 100)
+        safety_circle = target + TARGET_STANDOFF_DISTANCE * np.stack([
+            np.cos(theta),
+            np.sin(theta)
+        ], axis=1)
+
+        circle_line.set_data(safety_circle[:, 0], safety_circle[:, 1])
+
+        distances = np.linalg.norm(positions - target, axis=1)
+        standoff_error = np.mean(np.abs(distances - TARGET_STANDOFF_DISTANCE))
+
+        metrics["total_pursuit_standoff_error"] += standoff_error
+
+        title_metric = f"Standoff error: {standoff_error:.3f}"
+
     elif TASK == "flock":
         target_plot.set_visible(False)
         circle_line.set_data([], [])
@@ -214,6 +279,15 @@ def update(frame):
         metrics["total_spatial_variance"] += variance
 
         title_metric = f"Spatial variance: {variance:.3f}"
+
+    elif TASK == "dispersion":
+        target_plot.set_visible(False)
+        circle_line.set_data([], [])
+
+        variance = spatial_variance(positions)
+        metrics["total_spatial_variance"] += variance
+
+        title_metric = f"Spread variance: {variance:.3f}"
 
     else:
         target_plot.set_visible(False)
@@ -249,9 +323,19 @@ def save_run_summary():
         average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
         lines.append(f"Average encircle error: {average_error}")
 
+    if TASK == "pursuit":
+        average_standoff_error = (
+            metrics["total_pursuit_standoff_error"] / max(metrics["frames"], 1)
+        )
+        lines.append(f"Average pursuit standoff error: {average_standoff_error}")
+
     if TASK == "flock":
         average_variance = metrics["total_spatial_variance"] / max(metrics["frames"], 1)
         lines.append(f"Average spatial variance: {average_variance}")
+
+    if TASK == "dispersion":
+        average_variance = metrics["total_spatial_variance"] / max(metrics["frames"], 1)
+        lines.append(f"Average spread variance: {average_variance}")
 
     with open(RUN_SUMMARY_FILE, "w") as file:
         file.write("\n".join(lines))
@@ -281,9 +365,19 @@ if TASK == "encircle":
     average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
     print("Average encircle error:", average_error)
 
+if TASK == "pursuit":
+    average_standoff_error = (
+        metrics["total_pursuit_standoff_error"] / max(metrics["frames"], 1)
+    )
+    print("Average pursuit standoff error:", average_standoff_error)
+
 if TASK == "flock":
     average_variance = metrics["total_spatial_variance"] / max(metrics["frames"], 1)
     print("Average spatial variance:", average_variance)
+
+if TASK == "dispersion":
+    average_variance = metrics["total_spatial_variance"] / max(metrics["frames"], 1)
+    print("Average spread variance:", average_variance)
 
 print("Total robot collision count:", metrics["robot_collisions"])
 

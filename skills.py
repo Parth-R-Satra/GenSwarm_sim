@@ -5,7 +5,8 @@ from config import (
     ENCIRCLE_RADIUS,
     FLOCK_SEPARATION_DISTANCE,
     MAX_SPEED,
-    SENSE_RADIUS
+    SENSE_RADIUS,
+    TARGET_STANDOFF_DISTANCE
 )
 
 
@@ -64,6 +65,48 @@ def avoid_neighbors(robot_id, positions, strength=1.8):
             avoid += strength * (FLOCK_SEPARATION_DISTANCE - distance) * away
 
     return avoid
+
+
+def spread_from_neighbors(robot_id, positions, strength=1.2):
+    me = positions[robot_id]
+    spread = np.zeros(2)
+
+    for j, other in enumerate(positions):
+        if j == robot_id:
+            continue
+
+        direction = me - other
+        distance = np.linalg.norm(direction)
+
+        if distance < 1e-6:
+            continue
+
+        if distance <= SENSE_RADIUS:
+            away = direction / distance
+            spread += strength * away / distance
+
+    return spread
+
+
+def keep_distance_from_target(
+    me,
+    target,
+    desired_distance=TARGET_STANDOFF_DISTANCE,
+    strength=1.2
+):
+    if target is None:
+        return np.zeros(2)
+
+    direction = target - me
+    distance = np.linalg.norm(direction)
+
+    if distance < 1e-6:
+        return np.array([strength, 0.0])
+
+    unit_direction = direction / distance
+    distance_error = distance - desired_distance
+
+    return strength * distance_error * unit_direction
 
 
 def avoid_boundary(me):

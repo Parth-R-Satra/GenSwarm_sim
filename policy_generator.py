@@ -21,12 +21,32 @@ def analyze_instruction(instruction):
         "orbit"
     ]
 
+    pursuit_words = [
+        "pursue",
+        "pursuit",
+        "follow",
+        "chase",
+        "track"
+    ]
+
+    dispersion_words = [
+        "disperse",
+        "dispersion",
+        "spread",
+        "spread out",
+        "move apart",
+        "separate",
+        "scatter"
+    ]
+
     flock_words = [
         "flock",
         "group",
         "cluster",
         "together",
-        "cohesive"
+        "cohesive",
+        "come close",
+        "close together"
     ]
 
     target_words = [
@@ -36,10 +56,24 @@ def analyze_instruction(instruction):
     ]
 
     has_encircle_intent = any(word in text for word in encircle_words)
+    has_pursuit_intent = any(word in text for word in pursuit_words)
+    has_dispersion_intent = any(word in text for word in dispersion_words)
     has_flock_intent = any(word in text for word in flock_words)
     has_target = any(word in text for word in target_words)
 
-    if has_encircle_intent or (("follow" in text or "chase" in text) and has_target):
+    if has_dispersion_intent:
+        task_spec["task"] = "dispersion"
+        task_spec["target_required"] = False
+        task_spec["skills"] = [
+            "spread_from_neighbors",
+            "avoid_neighbors",
+            "avoid_boundary",
+            "damping"
+        ]
+        task_spec["constraints"].append("maximize_robot_spacing")
+        return task_spec
+
+    if has_encircle_intent:
         task_spec["task"] = "encircle"
         task_spec["target_required"] = True
         task_spec["skills"] = [
@@ -49,6 +83,19 @@ def analyze_instruction(instruction):
             "avoid_boundary"
         ]
         task_spec["constraints"].append("maintain_radius_around_target")
+        return task_spec
+
+    if has_pursuit_intent and has_target:
+        task_spec["task"] = "pursuit"
+        task_spec["target_required"] = True
+        task_spec["skills"] = [
+            "keep_distance_from_target",
+            "avoid_neighbors",
+            "avoid_boundary",
+            "damping"
+        ]
+        task_spec["constraints"].append("minimize_distance_to_target")
+        task_spec["constraints"].append("maintain_standoff_from_target")
         return task_spec
 
     if has_flock_intent:
@@ -81,6 +128,67 @@ def analyze_instruction(instruction):
 
 def generate_policy_code(instruction, task_spec):
     task = task_spec["task"]
+
+    if task == "pursuit":
+        return """
+def generated_policy(robot_id, positions, old_velocities, target):
+    me = positions[robot_id]
+
+    target_follow = keep_distance_from_target(
+        me,
+        target,
+        desired_distance=0.7,
+        strength=1.2
+    )
+
+    separation = avoid_neighbors(
+        robot_id,
+        positions,
+        strength=1.8
+    )
+
+    damping = -0.25 * old_velocities[robot_id]
+    boundary = avoid_boundary(me)
+
+    velocity = (
+        target_follow
+        + separation
+        + damping
+        + boundary
+    )
+
+    return clamp_vector(velocity, MAX_SPEED)
+"""
+
+    if task == "dispersion":
+        return """
+def generated_policy(robot_id, positions, old_velocities, target):
+    me = positions[robot_id]
+
+    spread = spread_from_neighbors(
+        robot_id,
+        positions,
+        strength=1.2
+    )
+
+    separation = avoid_neighbors(
+        robot_id,
+        positions,
+        strength=1.5
+    )
+
+    damping = -0.3 * old_velocities[robot_id]
+    boundary = avoid_boundary(me)
+
+    velocity = (
+        spread
+        + separation
+        + damping
+        + boundary
+    )
+
+    return clamp_vector(velocity, MAX_SPEED)
+"""
 
     if task == "flock":
         return """

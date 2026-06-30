@@ -1,11 +1,11 @@
 GenSwarm-style Simulation Run Summary
 ------------------------------------
-Instruction: make all robots come close toghether
-Chosen task: flock
+Instruction: disperse
+Chosen task: dispersion
 Target required: False
-Skills: sense_neighbors, move_to_goal, avoid_neighbors, avoid_boundary, velocity_alignment, damping
-Constraints: avoid_robot_collision, stay_inside_arena, maintain_local_cohesion
+Skills: spread_from_neighbors, avoid_neighbors, avoid_boundary, damping
+Constraints: avoid_robot_collision, stay_inside_arena, maximize_robot_spacing
 Policy mode: generated
-Frames executed: 152
+Frames executed: 219
 Total robot collisions: 0
-Average spatial variance: 1.0164216502559293
+Average spread variance: 6.459290515770306

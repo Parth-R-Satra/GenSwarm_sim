@@ -53,6 +53,8 @@ Allowed helper functions:
 - sense_neighbors(robot_id, positions)
 - move_to_goal(me, goal, strength=1.0)
 - avoid_neighbors(robot_id, positions, strength=1.8)
+- spread_from_neighbors(robot_id, positions, strength=1.2)
+- keep_distance_from_target(me, target, desired_distance=0.7, strength=1.2)
 - avoid_boundary(me)
 - assigned_encircle_point(robot_id, total_robots, target)
 - clamp_vector(v, MAX_SPEED)
@@ -61,6 +63,10 @@ Allowed NumPy calls:
 - np.mean(...)
 - np.zeros(...)
 - np.array(...)
+
+Important task rule:
+- For pursuit/follow/chase target tasks, use keep_distance_from_target(...) instead of directly moving to the target center.
+- This prevents robots from colliding with or sitting on top of the target.
 
 Rules:
 - Do not import anything.

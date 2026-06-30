@@ -1,20 +1,19 @@
 def generated_policy(robot_id, positions, old_velocities, target):
+    velocity = np.zeros(2)
     me = positions[robot_id]
 
-    # Calculate the center of mass of all robots for cohesion
-    swarm_center = np.mean(positions, axis=0)
+    # Core dispersion behavior: spread from neighbors
+    velocity += spread_from_neighbors(robot_id, positions, strength=1.5)
 
-    # Cohesion: Move towards the swarm's center
-    cohesion_velocity = move_to_goal(me, swarm_center, strength=1.0)
+    # Avoid immediate collisions with neighbors
+    velocity += avoid_neighbors(robot_id, positions, strength=1.8)
 
-    # Separation: Avoid colliding with neighbors
-    separation_velocity = avoid_neighbors(robot_id, positions, strength=1.8)
+    # Stay inside the arena boundaries
+    velocity += avoid_boundary(me)
 
-    # Boundary Avoidance: Stay within the arena
-    boundary_velocity = avoid_boundary(me)
+    # Damping to smooth movement and prevent oscillations
+    # Incorporate a fraction of the old velocity
+    damping_factor = 0.5
+    velocity += old_velocities[robot_id] * damping_factor
 
-    # Combine all desired velocities
-    total_velocity = cohesion_velocity + separation_velocity + boundary_velocity
-
-    # Clamp the final velocity to MAX_SPEED
-    return clamp_vector(total_velocity, MAX_SPEED)
+    return clamp_vector(velocity, MAX_SPEED)
