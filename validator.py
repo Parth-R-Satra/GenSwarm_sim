@@ -1,7 +1,12 @@
 import ast
 import numpy as np
 
-from config import MAX_SPEED
+from config import (
+    ENCIRCLE_RADIUS,
+    MAX_SPEED,
+    TARGET_STANDOFF_DISTANCE
+)
+
 from skills import (
     assigned_encircle_point,
     avoid_boundary,
@@ -14,25 +19,98 @@ from skills import (
 )
 
 
-def validate_policy_code(policy_code):
-    banned_words = [
-        "import",
-        "open",
-        "eval",
-        "exec",
-        "__",
-        "os.",
-        "sys.",
-        "subprocess",
-        "input",
-        "while True"
-    ]
+ALLOWED_FUNCTION_CALLS = {
+    "generated_policy",
+    "sense_neighbors",
+    "move_to_goal",
+    "avoid_neighbors",
+    "spread_from_neighbors",
+    "keep_distance_from_target",
+    "avoid_boundary",
+    "assigned_encircle_point",
+    "clamp_vector",
+    "len",
+    "range"
+}
 
-    for word in banned_words:
-        if word in policy_code:
-            raise ValueError(f"Unsafe generated code found: {word}")
 
+ALLOWED_NUMPY_CALLS = {
+    "mean",
+    "zeros",
+    "array"
+}
+
+
+BANNED_FUNCTION_CALLS = {
+    "open",
+    "eval",
+    "exec",
+    "input",
+    "compile",
+    "__import__",
+    "globals",
+    "locals",
+    "vars",
+    "dir",
+    "getattr",
+    "setattr",
+    "delattr"
+}
+
+
+BANNED_NAMES = {
+    "os",
+    "sys",
+    "subprocess",
+    "pathlib",
+    "shutil",
+    "socket",
+    "requests"
+}
+
+
+def validate_policy_code(policy_code, task_spec=None):
     tree = ast.parse(policy_code)
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise ValueError("Import statements are not allowed.")
+
+        if isinstance(node, ast.While):
+            raise ValueError("While loops are not allowed.")
+
+        if isinstance(node, ast.Name):
+            if node.id in BANNED_NAMES:
+                raise ValueError(f"Unsafe name used: {node.id}")
+
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                function_name = node.func.id
+
+                if function_name in BANNED_FUNCTION_CALLS:
+                    raise ValueError(f"Unsafe function call found: {function_name}")
+
+                if function_name not in ALLOWED_FUNCTION_CALLS:
+                    raise ValueError(f"Function call not allowed: {function_name}")
+
+            elif isinstance(node.func, ast.Attribute):
+                if isinstance(node.func.value, ast.Name):
+                    object_name = node.func.value.id
+                    attribute_name = node.func.attr
+
+                    if object_name == "np":
+                        if attribute_name not in ALLOWED_NUMPY_CALLS:
+                            raise ValueError(
+                                f"NumPy call not allowed: np.{attribute_name}"
+                            )
+                    else:
+                        raise ValueError(
+                            "Attribute calls are not allowed except allowed NumPy calls."
+                        )
+                else:
+                    raise ValueError(
+                        "Nested attribute calls are not allowed."
+                    )
 
     function_names = [
         node.name
@@ -43,45 +121,11 @@ def validate_policy_code(policy_code):
     if "generated_policy" not in function_names:
         raise ValueError("Generated code must define generated_policy().")
 
-    allowed_function_calls = {
-        "generated_policy",
-        "sense_neighbors",
-        "move_to_goal",
-        "avoid_neighbors",
-        "spread_from_neighbors",
-        "keep_distance_from_target",
-        "avoid_boundary",
-        "assigned_encircle_point",
-        "clamp_vector",
-        "len",
-        "range"
-    }
-
-    allowed_np_calls = {
-        "mean",
-        "zeros",
-        "array"
-    }
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                if node.func.id not in allowed_function_calls:
-                    raise ValueError(f"Function call not allowed: {node.func.id}")
-
-            elif isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == "np":
-                        if node.func.attr not in allowed_np_calls:
-                            raise ValueError(
-                                f"NumPy call not allowed: np.{node.func.attr}"
-                            )
-
     return True
 
 
-def compile_generated_policy(policy_code):
-    validate_policy_code(policy_code)
+def compile_generated_policy(policy_code, task_spec=None):
+    validate_policy_code(policy_code, task_spec)
 
     namespace = {
         "__builtins__": {
@@ -90,6 +134,8 @@ def compile_generated_policy(policy_code):
         },
         "np": np,
         "MAX_SPEED": MAX_SPEED,
+        "ENCIRCLE_RADIUS": ENCIRCLE_RADIUS,
+        "TARGET_STANDOFF_DISTANCE": TARGET_STANDOFF_DISTANCE,
         "sense_neighbors": sense_neighbors,
         "move_to_goal": move_to_goal,
         "avoid_neighbors": avoid_neighbors,
@@ -116,7 +162,11 @@ def compile_generated_policy(policy_code):
     ], dtype=float)
 
     dummy_velocities = np.zeros_like(dummy_positions)
-    dummy_target = np.array([0.0, 0.0], dtype=float)
+
+    if task_spec is not None and task_spec.get("target_required") is False:
+        dummy_target = None
+    else:
+        dummy_target = np.array([0.0, 0.0], dtype=float)
 
     test_output = generated(
         0,
@@ -136,4 +186,4 @@ def compile_generated_policy(policy_code):
 
     print("Generated policy passed validation.")
 
-    return generated    
+    return generated

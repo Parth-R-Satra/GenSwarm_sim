@@ -137,33 +137,60 @@ def dispersion_policy(robot_id, positions, old_velocities):
 
 
 def initial_positions_for_task(task):
+    angles = np.linspace(
+        0,
+        2 * np.pi,
+        N_ROBOTS,
+        endpoint=False
+    )
+
     if task == "dispersion":
-        return np.array([
-            [-0.6,  0.4],
-            [-0.3,  0.2],
-            [ 0.0,  0.5],
-            [ 0.3,  0.1],
-            [ 0.6,  0.3],
-            [-0.4, -0.2],
-            [ 0.1, -0.4],
-            [ 0.5, -0.3]
-        ], dtype=float)
+        radius = 0.45
+
+        positions = np.stack([
+            radius * np.cos(angles),
+            radius * np.sin(angles)
+        ], axis=1)
+
+        return positions
 
     if task == "flock":
-        return np.array([
-            [-3.1,  2.7],
-            [-2.4,  1.8],
-            [-1.6,  3.0],
-            [-0.8,  1.5],
-            [ 0.2,  2.6],
-            [ 1.2,  1.7],
-            [ 2.2,  2.9],
-            [ 3.0,  1.6]
-        ], dtype=float)
+        center = np.array([-1.0, -1.0])
+        radius = 0.55
 
-    angles = np.linspace(0, 2 * np.pi, N_ROBOTS, endpoint=False)
+        positions = center + np.stack([
+            radius * np.cos(angles),
+            radius * np.sin(angles)
+        ], axis=1)
 
-    return np.stack([
-        2.7 * np.cos(angles),
-        2.7 * np.sin(angles)
+        return positions
+
+    if task == "pursuit":
+        center = np.array([-1.5, 0.0])
+        radius = 0.55
+
+        positions = center + np.stack([
+            radius * np.cos(angles),
+            radius * np.sin(angles)
+        ], axis=1)
+
+        return positions
+
+    if task == "encircle":
+        radius = 2.7
+
+        positions = np.stack([
+            radius * np.cos(angles),
+            radius * np.sin(angles)
+        ], axis=1)
+
+        return positions
+
+    radius = 0.55
+
+    positions = np.stack([
+        radius * np.cos(angles),
+        radius * np.sin(angles)
     ], axis=1)
+
+    return positions

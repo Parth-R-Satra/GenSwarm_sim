@@ -1,11 +1,10 @@
 GenSwarm-style Simulation Run Summary
 ------------------------------------
-Instruction: disperse
+Instruction: disperse around
 Chosen task: dispersion
 Target required: False
 Skills: spread_from_neighbors, avoid_neighbors, avoid_boundary, damping
-Constraints: avoid_robot_collision, stay_inside_arena, maximize_robot_spacing
 Policy mode: generated
-Frames executed: 219
+Frames executed: 289
 Total robot collisions: 0
-Average spread variance: 6.459290515770306
+Average spread variance: 9.109574024632353

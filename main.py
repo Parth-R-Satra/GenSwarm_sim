@@ -8,7 +8,6 @@ from config import (
     ENCIRCLE_RADIUS,
     GENERATED_POLICY_FILE,
     LLM_MAX_RETRIES,
-    N_ROBOTS,
     RUN_SUMMARY_FILE,
     SAVE_GENERATED_POLICY,
     SAVE_RUN_SUMMARY,
@@ -32,8 +31,9 @@ from policies import (
     pursuit_policy
 )
 
+from task_analyzer import analyze_instruction
+
 from policy_generator import (
-    analyze_instruction,
     generate_policy_code as generate_template_policy_code
 )
 
@@ -67,26 +67,26 @@ def build_and_validate_policy():
         for attempt in range(LLM_MAX_RETRIES):
             print(f"\nGenerating policy using Gemini, attempt {attempt + 1}...")
 
-            policy_code = generate_policy_code_with_llm(
-                USER_INSTRUCTION,
-                TASK_SPEC,
-                validation_error=validation_error
-            )
-
-            print("\nLLM generated policy code:")
-            print(policy_code)
-
             try:
-                generated = compile_generated_policy(policy_code)
+                policy_code = generate_policy_code_with_llm(
+                    USER_INSTRUCTION,
+                    TASK_SPEC,
+                    validation_error=validation_error
+                )
+
+                print("\nLLM generated policy code:")
+                print(policy_code)
+
+                generated = compile_generated_policy(policy_code, TASK_SPEC)
 
                 if SAVE_GENERATED_POLICY:
                     save_generated_policy(policy_code)
 
-                return policy_code, generated
+                return policy_code, generated, "Gemini generated"
 
             except Exception as error:
                 validation_error = str(error)
-                print("Generated policy failed validation:")
+                print("Gemini policy generation or validation failed:")
                 print(validation_error)
 
         print("\nGemini generation failed. Falling back to template policy.")
@@ -101,10 +101,10 @@ def build_and_validate_policy():
     if SAVE_GENERATED_POLICY:
         save_generated_policy(policy_code)
 
-    return policy_code, generated
+    return policy_code, generated, "Template fallback"
 
 
-policy_code, generated_policy = build_and_validate_policy()
+policy_code, generated_policy, POLICY_SOURCE = build_and_validate_policy()
 
 metrics = {
     "total_encircle_error": 0.0,
@@ -156,7 +156,7 @@ def update(frame):
     if TASK == "encircle":
         target = target_position(t)
 
-        for i in range(N_ROBOTS):
+        for i in range(len(old_positions)):
             if USE_GENERATED_POLICY:
                 velocities[i] = generated_policy(
                     i,
@@ -170,7 +170,7 @@ def update(frame):
     elif TASK == "pursuit":
         target = target_position(t)
 
-        for i in range(N_ROBOTS):
+        for i in range(len(old_positions)):
             if USE_GENERATED_POLICY:
                 velocities[i] = generated_policy(
                     i,
@@ -189,7 +189,7 @@ def update(frame):
     elif TASK == "flock":
         target = None
 
-        for i in range(N_ROBOTS):
+        for i in range(len(old_positions)):
             if USE_GENERATED_POLICY:
                 velocities[i] = generated_policy(
                     i,
@@ -207,7 +207,7 @@ def update(frame):
     elif TASK == "dispersion":
         target = None
 
-        for i in range(N_ROBOTS):
+        for i in range(len(old_positions)):
             if USE_GENERATED_POLICY:
                 velocities[i] = generated_policy(
                     i,
@@ -294,10 +294,13 @@ def update(frame):
         circle_line.set_data([], [])
         title_metric = "Unknown task"
 
-    policy_type = "generated" if USE_GENERATED_POLICY else "manual"
+    if USE_GENERATED_POLICY:
+        policy_label = POLICY_SOURCE
+    else:
+        policy_label = "Manual policy"
 
     ax.set_title(
-        f"Task: {TASK} | Policy: {policy_type} | Step {frame} | "
+        f"Task: {TASK} | Policy: {policy_label} | Step {frame} | "
         f"{title_metric} | Robot now: {robot_collisions_now} | "
         f"Robot total: {metrics['robot_collisions']}"
     )
@@ -308,14 +311,18 @@ def update(frame):
 def save_run_summary():
     lines = []
 
+    if USE_GENERATED_POLICY:
+        policy_label = POLICY_SOURCE
+    else:
+        policy_label = "Manual policy"
+
     lines.append("GenSwarm-style Simulation Run Summary")
     lines.append("------------------------------------")
     lines.append(f"Instruction: {USER_INSTRUCTION}")
     lines.append(f"Chosen task: {TASK}")
     lines.append(f"Target required: {TASK_SPEC['target_required']}")
     lines.append(f"Skills: {', '.join(TASK_SPEC['skills'])}")
-    lines.append(f"Constraints: {', '.join(TASK_SPEC['constraints'])}")
-    lines.append(f"Policy mode: {'generated' if USE_GENERATED_POLICY else 'manual'}")
+    lines.append(f"Policy source: {policy_label}")
     lines.append(f"Frames executed: {metrics['frames']}")
     lines.append(f"Total robot collisions: {metrics['robot_collisions']}")
 
@@ -353,13 +360,17 @@ ani = FuncAnimation(
 
 plt.show()
 
+if USE_GENERATED_POLICY:
+    final_policy_label = POLICY_SOURCE
+else:
+    final_policy_label = "Manual policy"
+
 print("Simulation finished")
 print("Instruction:", USER_INSTRUCTION)
 print("Task:", TASK)
 print("Target required:", TASK_SPEC["target_required"])
 print("Skills:", TASK_SPEC["skills"])
-print("Constraints:", TASK_SPEC["constraints"])
-print("Policy mode:", "generated" if USE_GENERATED_POLICY else "manual")
+print("Policy source:", final_policy_label)
 
 if TASK == "encircle":
     average_error = metrics["total_encircle_error"] / max(metrics["frames"], 1)
